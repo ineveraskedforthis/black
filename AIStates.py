@@ -12,7 +12,10 @@ class EnemyHunting(State):
         if agent.distance_to_target() > agent.get_attack_distance():
             agent.move_to_target()
         else:
-            agent.attack_target()
+            if self.target.hp > 0:
+                agent.attack_target()
+            else:
+                agent.change_state(EnemyIdle)
 
 
 

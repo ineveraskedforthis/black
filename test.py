@@ -8,6 +8,7 @@ from AIStates import *
 
 
 pygame.init()
+pygame.font.init()
 screen = pygame.display.set_mode((500, 500))
 pygame.display.set_caption('Basic Pygame program')
 
@@ -32,6 +33,7 @@ DeadObjects = set()
 NewObjects = set()
 background_im, background_rect = load_image('background.bmp')
 
+
 ground_im, ground_rect = load_image('earth.png')
 GROUND_LEVEL = 400
 ground_rect.move_ip(0, GROUND_LEVEL)
@@ -47,7 +49,8 @@ class fsm_adam():
 
 
 class image_adam():
-    def __init__(self, rect = BASE_RECT, image = BASE_IMAGE, x = 0, y = 0):
+    def __init__(self, scene, rect = BASE_RECT, image = BASE_IMAGE, x = 0, y = 0):
+        self.scene = scene
         self.image = image
         self.rect = rect.move(x, GROUND_LEVEL - rect.height - y)
         self.x = x
@@ -75,8 +78,8 @@ class image_adam():
 
 
 class hp_adam(image_adam):
-    def __init__(self, rect = BASE_RECT, image = BASE_IMAGE, x = 0, y = 0):
-        image_adam.__init__(self, rect, image, x, y) 
+    def __init__(self, scene, rect = BASE_RECT, image = BASE_IMAGE, x = 0, y = 0):
+        image_adam.__init__(self, scene, rect, image, x, y) 
         self.hp = 1   
         self.speed = 1
         self.attack_damage = 1
@@ -86,7 +89,7 @@ class hp_adam(image_adam):
         self.orientation = 'R'
 
     def destroy(self):
-        DeadObjects.add(self)
+        self.scene.del_object(self)
 
     def step_right(self):
         self.set_orientation('R')
@@ -108,6 +111,7 @@ class hp_adam(image_adam):
     def change_hp(self, x):
         self.hp += x
         if self.hp <= 0:
+            self.hp = 0
             self.destroy()
 
     def attack_target(self):
@@ -121,13 +125,14 @@ class hp_adam(image_adam):
 
 
 class true_adam(hp_adam, fsm_adam):
-    def __init__(self, rect = BASE_RECT, image = BASE_IMAGE, x = 0, y = 0):
-        hp_adam.__init__(self, rect, image, x, y)
+    def __init__(self, scene, rect = BASE_RECT, image = BASE_IMAGE, x = 0, y = 0):
+        hp_adam.__init__(self, scene, rect, image, x, y)
+        self.scene = scene
 
 
 class FireBall(hp_adam):
-    def __init__(self, host, x, y):
-        hp_adam.__init__(self, FIREBALL_RECT, FIREBALL_IMAGE, x, y)
+    def __init__(self, scene, host, x, y):
+        hp_adam.__init__(self, scene, FIREBALL_RECT, FIREBALL_IMAGE, x, y)
         self.speed = 5
         self.host = host
         self.orientation = host.orientation
@@ -145,24 +150,28 @@ class FireBall(hp_adam):
 
     def check_collisions(self, speed):
         checking_rect = self.get_rect().inflate(speed, 0)
-        for item in Objects:
+        for item in self.scene.Objects:
             if not item.spiritual and checking_rect.colliderect(item.get_rect()) and item.is_enemy:
                 item.take_damage(self.damage, 'fire')
                 self.destroy()
 
 
 class player_adam(true_adam):
-    def __init__(self):
-        true_adam.__init__(self, HERO_RECT, HERO_IMAGE, 0, 0)
+    def __init__(self, scene):
+        true_adam.__init__(self, scene, HERO_RECT, HERO_IMAGE, 0, 0)
         self.fsm = StateMachine(self, PlayerIdle)
         self.key_pressed = 'NONE'
         self.is_living_adam = True
         self.hp = 10
+        self.mana = 200
+        self.max_mana = 200
+        self.max_hp = 10
+        self.mana_regen = 5
 
     def update(self):
-        fsm_adam.update(self)
-        print(self.x, self.y)
-   #     self.move(0, -1)
+        true_adam.update(self)
+        self.change_mana(self.mana_regen)
+
 
     def translate_event(self, event):
         key = event.key
@@ -180,14 +189,29 @@ class player_adam(true_adam):
             if key == K_e:
                 self.cast_magic()
 
+    def spend_mana(self, x):
+        if self.mana - x >= 0:
+            self.mana -= x
+            return True
+        return False
+
+    def change_mana(self, x):
+        self.mana += x
+        if self.mana < 0 :
+            self.mana = 0
+        if self.mana > self.max_mana:
+            self.mana = self.max_mana
+
     def cast_magic(self):
-        tmp = FireBall(self, self.x + 4, self.y + 30)
-        Objects.add(tmp)
+        if self.mana > 50 and self.hp > 0:
+            self.spend_mana(50)
+            tmp = FireBall(self.scene, self, self.x + 4, self.y + 30)
+            self.scene.add_object(tmp)
 
 
 class Enemy(true_adam):
-    def __init__(self, x, y):
-        true_adam.__init__(self, ZOMBIE_RECT, ZOMBIE_IMAGE, x, y)
+    def __init__(self, scene, x, y):
+        true_adam.__init__(self, scene, ZOMBIE_RECT, ZOMBIE_IMAGE, x, y)
         self.speed = 1
         self.fsm = StateMachine(self, EnemyIdle)
         self.is_enemy = True
@@ -200,8 +224,8 @@ class Enemy(true_adam):
     def update_target(self):
         closest_target = None
         dist = 0
-        for item in Objects:
-            if not item.is_enemy and item.is_living_adam:
+        for item in self.scene.Objects:
+            if not item.is_enemy and item.is_living_adam: and item.hp > 0
                 if closest_target == None:
                     closest_target = item
                     dist = self.dist(item)
@@ -230,50 +254,121 @@ class Enemy(true_adam):
 
 
 class ZSpawner(true_adam):
-    def __init__(self, ticks, child, x):
-        true_adam.__init__(self, ZOMBIE_SPAWNER_RECT, ZOMBIE_SPAWNER_IMAGE, x)
+    def __init__(self, scene, ticks, child, x):
+        true_adam.__init__(self, scene, ZOMBIE_SPAWNER_RECT, ZOMBIE_SPAWNER_IMAGE, x)
         (self.ticks, self.child, self.spawning_point) = (ticks, child, x)
         self.current_tick = 0
-        self.is_enemy = False
+        self.is_enemy = True
         self.is_living_adam = False
         self.spiritual = False
         self.hp = 10
         self.fsm = StateMachine(self, SpawnerIdle)        
 
     def spawn(self):
-        tmp_child = self.child(self.spawning_point, 0)
-        NewObjects.add(tmp_child)
+        tmp_child = self.child(self.scene, self.spawning_point, 0)
+        self.scene.add_object(tmp_child)
 
 
 
-player = player_adam()
-zombie_spawner = ZSpawner(20, Enemy, 400)
-Objects.add(player)
-Objects.add(zombie_spawner)
+def get_string_of_player_status(scene):
+    s = ''
+    s += 'hp: ' + str(scene.player.hp) + '/' + str(scene.player.max_hp) + '          '
+    s += 'mana: ' + str(scene.player.mana) + '/' + str(scene.player.max_mana)
+    return s
 
-screen.blit(background_im, (0, 0))
-player.draw()
-pygame.display.update()  
+myfont = pygame.font.SysFont('Comic Sans MS', 20)
 
-while 1:
-    for event in pygame.event.get():
-        if event.type == QUIT:
-            exit()
-        elif event.type == KEYDOWN or event.type == KEYUP:
-            player.translate_event(event)                    
+
+class Scene():
+    def __init__(self, text = 'empty_scene.txt', background = 'background.bmp') :
+        self.data = text
+        self.background = background
+        self.Objects = set()
+        self.DeadObjects = set()
+        self.NewObjects = set()
+        self.run = False
+        self.pause = False
+
+    def load(self):
+        x = open(self.data)
+        background_im, background_rect = load_image(self.background)
+        for i in x.readlines():
+            s, p = i.split()
+            p = int(p)
+            if s == 'zspawner':
+                self.add_object(ZSpawner(self, 20, Enemy, p))
+            if s == 'player':
+                self.player = player_adam(self)
+                self.add_object(self.player)
+
+    def start(self):
+        self.run = True
+        self.load()
+        while self.run:
+            self.update()
+
+    def pause(self):
+        self.pause = not self.pause
+
+    def add_object(self, x):
+        if self.run:
+            self.NewObjects.add(x)
+        else:
+            self.Objects,add(x)
     
-    screen.blit(background_im, (0, 0))
-    screen.blit(ground_im, ground_rect)
-    for item in DeadObjects:
-        Objects.discard(item)
-    DeadObjects = set()
-    for item in NewObjects:
-        Objects.add(item)
-    NewObjects = set()
+    def del_object(self, x):
+        if self.run:
+            self.DeadObjects.add(x)
+        else:
+            self.Objects.discard(x)
 
-    for item in Objects:
-        item.update()
-    for item in Objects:
-        item.draw()
-    pygame.display.update()
-    pygame.time.delay(100)
+    def update_set_of_objects(self):
+        for item in self.DeadObjects:
+            self.Objects.discard(item)
+        self.DeadObjects = set()
+
+        for item in self.NewObjects:
+            self.Objects.add(item)
+        self.NewObjects = set()
+
+        
+
+    def update(self):
+        if self.pause:
+            return
+        for event in pygame.event.get():
+            if event.type == QUIT:
+                self.run = False
+                return
+            elif event.type == KEYDOWN or event.type == KEYUP:
+                self.player.translate_event(event)  
+
+        textsurface = myfont.render(get_string_of_player_status(self), False, (0, 0, 0))
+        screen.blit(background_im, (0, 0))
+        screen.blit(ground_im, ground_rect)
+        screen.blit(textsurface, (0, 0))
+        
+        self.update_set_of_objects()
+        for item in self.Objects:
+            item.update()
+        for item in self.Objects:
+            item.draw()
+
+        pygame.display.update()
+        pygame.time.delay(100)
+
+# player = player_adam()
+# zombie_spawner = ZSpawner(20, Enemy, 400)
+# Objects.add(player)
+# Objects.add(zombie_spawner)
+
+# screen.blit(background_im, (0, 0))
+# player.draw()
+# pygame.display.update()  
+
+# while 1:
+
+FirstScene = Scene('zombie_spawner_scene.txt')
+FirstScene.start()
+
+

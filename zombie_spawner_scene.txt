@@ -1,2 +1,1 @@
 zspawner 400
-player 0

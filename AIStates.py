@@ -9,13 +9,16 @@ class EnemyIdle(State):
 
 class EnemyHunting(State):
     def Execute(agent):
+        if agent.target.hp == 0:
+            agent.cancel_target()
+            agent.change_state(EnemyIdle)
+            
         if agent.distance_to_target() > agent.get_attack_distance():
             agent.move_to_target()
-        else:
-            if self.target.hp > 0:
-                agent.attack_target()
-            else:
-                agent.change_state(EnemyIdle)
+        elif agent.target.hp > 0:
+            agent.attack_target()
+
+                
 
 
 

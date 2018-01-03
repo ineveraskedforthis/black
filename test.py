@@ -153,8 +153,7 @@ class FireBall(hp_adam):
         for item in self.scene.Objects:
             if not item.spiritual and checking_rect.colliderect(item.get_rect()) and item.is_enemy:
                 item.take_damage(self.damage, 'fire')
-                self.destroy()
-
+                self.scene.del_object(self)
 
 class player_adam(true_adam):
     def __init__(self, scene):
@@ -167,6 +166,10 @@ class player_adam(true_adam):
         self.max_mana = 200
         self.max_hp = 10
         self.mana_regen = 5
+        self.speed = 2
+        self.exp = 0
+        self.lvl = 1
+        self.skill_points = 0
 
     def update(self):
         true_adam.update(self)
@@ -205,13 +208,35 @@ class player_adam(true_adam):
     def cast_magic(self):
         if self.mana > 50 and self.hp > 0:
             self.spend_mana(50)
+            self.give_exp(1)
             tmp = FireBall(self.scene, self, self.x + 4, self.y + 30)
             self.scene.add_object(tmp)
 
+    def give_exp(self, x):
+        self.exp += x
+        while self.exp > self.exp_to_next_lvl():
+            self.exp -= self.exp_to_next_lvl()
+            self.levelup()
 
-class Enemy(true_adam):
+    def exp_to_next_lvl(self):
+        return self.lvl * 100
+
+    def levelup(self):
+        self.lvl += 1
+        self.give_sp(2)
+
+    def give_sp(self, x):
+        self.skill_points += x
+
+class enemy_adam(true_adam):
+    def destroy(self):
+        true_adam.destroy(self)
+        player.give_exp(self.exp_reward)
+
+
+class Enemy(enemy_adam):
     def __init__(self, scene, x, y):
-        true_adam.__init__(self, scene, ZOMBIE_RECT, ZOMBIE_IMAGE, x, y)
+        enemy_adam.__init__(self, scene, ZOMBIE_RECT, ZOMBIE_IMAGE, x, y)
         self.speed = 1
         self.fsm = StateMachine(self, EnemyIdle)
         self.is_enemy = True
@@ -220,6 +245,7 @@ class Enemy(true_adam):
         self.attack_distance = 20
         self.attack_damage = 1
         self.hp = 2
+        self.exp_reward = 5
 
     def update_target(self):
         closest_target = None
@@ -252,17 +278,21 @@ class Enemy(true_adam):
     def get_attack_distance(self):
         return self.attack_distance
 
+    def cancel_target(self):
+        self.target = None
 
-class ZSpawner(true_adam):
+
+class ZSpawner(enemy_adam):
     def __init__(self, scene, ticks, child, x):
-        true_adam.__init__(self, scene, ZOMBIE_SPAWNER_RECT, ZOMBIE_SPAWNER_IMAGE, x)
+        enemy_adam.__init__(self, scene, ZOMBIE_SPAWNER_RECT, ZOMBIE_SPAWNER_IMAGE, x)
         (self.ticks, self.child, self.spawning_point) = (ticks, child, x)
         self.current_tick = 0
         self.is_enemy = True
         self.is_living_adam = False
         self.spiritual = False
         self.hp = 10
-        self.fsm = StateMachine(self, SpawnerIdle)        
+        self.fsm = StateMachine(self, SpawnerIdle)
+        self.exp_reward = 100
 
     def spawn(self):
         tmp_child = self.child(self.scene, self.spawning_point, 0)
@@ -270,57 +300,72 @@ class ZSpawner(true_adam):
 
 
 
-def get_string_of_player_status(scene):
+def get_string_of_player_status():
     s = ''
-    s += 'hp: ' + str(scene.player.hp) + '/' + str(scene.player.max_hp) + '          '
-    s += 'mana: ' + str(scene.player.mana) + '/' + str(scene.player.max_mana)
+    s += ' hp: ' + str(player.hp) + '/' + str(player.max_hp)
+    s += ' mana: ' + str(player.mana) + '/' + str(player.max_mana)
+    s += ' exp: ' + str(player.exp) + '/' + str(player.exp_to_next_lvl())
+    s += ' lvl: ' + str(player.lvl)
     return s
 
-myfont = pygame.font.SysFont('Comic Sans MS', 20)
 
+
+
+class SceneManager():
+    def __init__(self):
+        self.data = dict()
+        self.current_scene = None
+        self.current_tag = '_'
+        self.prev_tag = '_'
+
+    def add_scene(self, scene, tag):
+        self.data[tag] = scene
+        scene.load()
+
+    def switch_scene(self, tag):
+        print('1:', self.current_tag, self.prev_tag)
+        self.prev_tag = self.current_tag
+        self.current_scene = self.data[tag]
+        self.current_tag = tag
+        print('2:', self.current_tag, self.prev_tag)
+
+    def switch_to_prev(self):
+        self.switch_scene(self.prev_tag)
+
+    def run(self):
+        while 1:
+            event_queue = pygame.event.get()
+            for event in event_queue:
+                if event.type == QUIT:
+                    return 
+                if event.type == KEYDOWN and event.key == K_TAB:
+                    if self.current_tag != 'game_menu':
+                        self.switch_scene('game_menu')
+                    else:
+                        self.switch_to_prev()
+            self.update_current_scene(event_queue)
+            pygame.time.delay(100)
+
+    def update_current_scene(self, events):
+        if self.current_scene != None:
+            self.current_scene.update(events)
+
+
+myfont = pygame.font.SysFont('timesnewroman', 20)
 
 class Scene():
-    def __init__(self, text = 'empty_scene.txt', background = 'background.bmp') :
-        self.data = text
+    def __init__(self, background = 'background.bmp'):
         self.background = background
         self.Objects = set()
         self.DeadObjects = set()
         self.NewObjects = set()
-        self.run = False
-        self.pause = False
-
-    def load(self):
-        x = open(self.data)
-        background_im, background_rect = load_image(self.background)
-        for i in x.readlines():
-            s, p = i.split()
-            p = int(p)
-            if s == 'zspawner':
-                self.add_object(ZSpawner(self, 20, Enemy, p))
-            if s == 'player':
-                self.player = player_adam(self)
-                self.add_object(self.player)
-
-    def start(self):
-        self.run = True
-        self.load()
-        while self.run:
-            self.update()
-
-    def pause(self):
-        self.pause = not self.pause
+        self.need_loading = False
 
     def add_object(self, x):
-        if self.run:
-            self.NewObjects.add(x)
-        else:
-            self.Objects,add(x)
+        self.NewObjects.add(x)
     
     def del_object(self, x):
-        if self.run:
-            self.DeadObjects.add(x)
-        else:
-            self.Objects.discard(x)
+        self.DeadObjects.add(x)
 
     def update_set_of_objects(self):
         for item in self.DeadObjects:
@@ -331,31 +376,105 @@ class Scene():
             self.Objects.add(item)
         self.NewObjects = set()
 
-        
+    def update(self, events):
+        screen.blit(background_im, (0, 0))
+        self.update_set_of_objects()
+        for i in self.Objects:
+            i.update()
+            i.draw()
+        pygame.display.update()
 
-    def update(self):
+
+class BattleScene(Scene):
+    def __init__(self, text = 'empty_scene.txt', background = 'background2.bmp'):
+        Scene.__init__(self, background)
+        self.data = text
+        self.run = False
+        self.pause = False
+        self.need_loading = True
+
+    def load(self):
+        x = open(self.data)
+        background_im, background_rect = load_image(self.background)
+        for i in x.readlines():
+            s, p = i.split()
+            p = int(p)
+            if s == 'zspawner':
+                self.add_object(ZSpawner(self, 20, Enemy, p))
+        self.need_loading = False
+
+    def start(self):
+        self.run = True
+        self.load()
+
+    def pause(self):
+        self.pause = not self.pause     
+
+    def update(self, events):
+        Scene.update(self, events)
         if self.pause:
             return
-        for event in pygame.event.get():
+        for event in events:
             if event.type == QUIT:
                 self.run = False
                 return
             elif event.type == KEYDOWN or event.type == KEYUP:
                 self.player.translate_event(event)  
 
-        textsurface = myfont.render(get_string_of_player_status(self), False, (0, 0, 0))
+        textsurface = myfont.render(get_string_of_player_status(), False, (255, 255, 0))
         screen.blit(background_im, (0, 0))
         screen.blit(ground_im, ground_rect)
         screen.blit(textsurface, (0, 0))
-        
-        self.update_set_of_objects()
+
         for item in self.Objects:
             item.update()
         for item in self.Objects:
             item.draw()
 
         pygame.display.update()
-        pygame.time.delay(100)
+
+    def add_player(self, x):
+        self.add_object(x)
+        self.player = x
+        player.scene = self
+        
+
+class Label():
+    def __init__(self, host, text, x, y):
+        self.surf = myfont.render(text, False, (255, 255, 255))
+        self.x, self.y = x, y
+
+    def update(self):
+        pass
+
+    def draw(self):
+        screen.blit(self.surf, (self.x, self.y))
+
+class UpdatingLabel(Label):
+    def __init__(self, host, f, x, y):
+        self.surf = myfont.render(f(), False, (255, 255, 255))
+        self.x, self.y = x, y
+        self.text = f
+
+    def update(self):
+        self.surf = myfont.render(self.text(), False, (255, 255, 255))
+
+
+class Button:
+    def __init__(self, text, x, y):
+        pass
+
+
+class MenuScene(Scene):
+    def __init__(self, background = 'background.bmp'):
+        Scene.__init__(self, background)
+        self.need_loading = True
+
+    def load(self):
+        background_im, background_rect = load_image(self.background)
+        self.add_object(UpdatingLabel(self, get_string_of_player_status, 0, 0))
+        self.add_object(UpdatingLabel(self, lambda: ' Skill points: ' + str(player.skill_points), 0, 25))
+        self.need_loading = False
 
 # player = player_adam()
 # zombie_spawner = ZSpawner(20, Enemy, 400)
@@ -368,7 +487,14 @@ class Scene():
 
 # while 1:
 
-FirstScene = Scene('zombie_spawner_scene.txt')
-FirstScene.start()
+zombie = BattleScene('zombie_spawner_scene.txt')
+player = player_adam(zombie)
+zombie.add_player(player)
+
+Manager = SceneManager()
+Manager.add_scene(zombie, 'zomb')
+Manager.add_scene(MenuScene(), 'game_menu')
+Manager.switch_scene('zomb')
+Manager.run()
 
 

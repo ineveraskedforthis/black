@@ -225,7 +225,7 @@ class Enemy(true_adam):
         closest_target = None
         dist = 0
         for item in self.scene.Objects:
-            if not item.is_enemy and item.is_living_adam: and item.hp > 0
+            if not item.is_enemy and item.is_living_adam and item.hp > 0:
                 if closest_target == None:
                     closest_target = item
                     dist = self.dist(item)

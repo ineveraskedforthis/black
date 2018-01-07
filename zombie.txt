@@ -1,0 +1,6 @@
+zombie
+zombie.png
+1 speed
+2 maxhp
+1 attack damage
+20 attack_distance

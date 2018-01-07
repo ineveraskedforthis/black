@@ -7,6 +7,7 @@ from StateTemplates import *
 from PlayerStates import *
 from AIStates import *
 from GameClasses import *
+from Magic import *
 
 def load_image(name, colorkey=None):
     fullname = os.path.join('data', name)
@@ -23,7 +24,7 @@ pygame.font.init()
 screen = pygame.display.set_mode((500, 500))
 pygame.display.set_caption('Basic Pygame program')
 BASE_SLOTS = ['left_hand', 'right_hand', 'helmet', 'legs', 'body', 'head']
-BASE_DROP_CHANCE = 1
+BASE_DROP_CHANCE = 0.5
 CAMERA = [0, 0]
 
 BASE_IMAGE, BASE_RECT = load_image('base_image.png')
@@ -31,6 +32,7 @@ CRATE_IMAGE, CRATE_RECT = load_image('crate.png')
 FIREBALL_IMAGE, FIREBALL_RECT = load_image('fireball.png')
 ZOMBIE_IMAGE, ZOMBIE_RECT = load_image('zombie.png')
 ZOMBIE_SPAWNER_IMAGE, ZOMBIE_SPAWNER_RECT = load_image('zombie_spawner.png')
+SLASH_IMAGE, SLASH_RECT = load_image('slash.png')
 HERO_IMAGE, HERO_RECT = load_image('hero.png')
 background_im, background_rect = load_image('background.bmp')
 background2_im, background2_rect = load_image('background2.bmp')
@@ -57,10 +59,8 @@ class image_adam():
         self.rect = rect.move(x, GROUND_LEVEL - rect.height - y)
         self.x = x
         self.y = y
-        self.is_crate = False
-        self.spiritual = False
         self.is_enemy = False
-        self.is_living_adam = False
+        self.orientation = 'R'
 
     def draw(self):
         tmpRect = self.get_rect().move(CAMERA[0], CAMERA[1])
@@ -85,17 +85,11 @@ class image_adam():
     def destroy(self):
         self.scene.del_object(self)
 
-
-class hp_adam(image_adam):
-    def __init__(self, scene, rect, image, x = 0, y = 0):
-        image_adam.__init__(self, scene, rect, image, x, y) 
-        self.hp = 1   
-        self.speed = 1
-        self.base_attack_damage = 1
-        self.is_enemy = False
-        self.is_living_adam = False       
-        self.spiritual = False    
-        self.orientation = 'R'
+    def set_orientation(self, orientation):
+        if self.orientation == orientation:
+            return
+        self.orientation = orientation
+        self.image = pygame.transform.flip(self.image, True, False)
 
     def step_right(self):
         self.set_orientation('R')
@@ -103,19 +97,24 @@ class hp_adam(image_adam):
 
     def step_left(self):
         self.set_orientation('L')
-        self.move(-self.speed, 0)
+        self.move(-self.speed, 0)   
 
-    def set_orientation(self, orientation):
-        if self.orientation == orientation:
-            return
-        self.orientation = orientation
-        self.image = pygame.transform.flip(self.image, True, False)
+
+class hp_adam(image_adam):
+    def __init__(self, scene, rect, image, x = 0, y = 0):
+        image_adam.__init__(self, scene, rect, image, x, y) 
+        self.hp = 1 
+        self.max_hp = 1
+        self.speed = 1
+        self.base_attack_damage = 1
+        self.is_enemy = False
+        self.is_ally = False
 
     def take_damage(self, x, type = 'phys'):
         self.change_hp(-x)
 
     def change_hp(self, x):
-        self.hp += x
+        self.hp = min(self.hp + x, self.max_hp)
         if self.hp <= 0:
             self.hp = 0
             self.destroy()
@@ -127,7 +126,7 @@ class hp_adam(image_adam):
             self.attack(self.target)
 
     def get_attack_damage(self):
-        return base_attack_damage
+        return self.base_attack_damage
 
     def attack(self, agent):
         agent.take_damage(self.get_attack_damage())
@@ -143,6 +142,7 @@ class enemy_adam(true_adam):
     def __init__(self, scene, rect, image, x, y):
         true_adam.__init__(self, scene, rect, image, x, y)
         self.drop_chance = BASE_DROP_CHANCE
+        self.is_enemy = True
 
     def destroy(self):
         true_adam.destroy(self)
@@ -151,88 +151,169 @@ class enemy_adam(true_adam):
         if x <= self.drop_chance:
             self.scene.player.add_loot(GENERATE_RANDOM_ITEM())
 
-class FireBall(hp_adam):
-    def __init__(self, scene, host, x, y):
-        hp_adam.__init__(self, scene, FIREBALL_RECT, FIREBALL_IMAGE, x, y)
-        self.speed = 5
-        self.host = host
-        self.orientation = host.orientation
+
+class Item():
+    def __init__(self, Name, Type, Slot, BasePower):
+        self.name, self.typ, self.slot, self.power = Name, Type, Slot, BasePower
+        self.status = 'common'
+        self.bonus_power = 0
+        if Slot == 'two_hands':
+            self.slot = 'right_hand'
+            self.is_twohanded = True
+        else:
+            self.is_twohanded = False
+
+    def set_status(self, tag):
+        if tag == 'uncommon':
+            self.bonus_power = 2
+        if tag == 'rare':
+            self.bonus_power = 6
+        if tag == 'epic':
+            self.bonus_power = 10
+        self.status = tag
+
+    def get_power(self):
+        return self.power + self.bonus_power
+
+    def get_name(self):
+        return self.status + ' ' + self.name
+
+list_of_items = open('items.txt').readlines()
+common_items = []
+for i in list_of_items:
+    x = i.split()
+    common_items.append(Item(x[0], x[1], x[2], int(x[3])))
+
+
+
+class SpellInstance(hp_adam):
+    def __init__(self, Host, Scene, Image, Rect, Name, Power, Speed, MaxDistance, Pierce, Update, CheckCollisions, Action):
+        hp_adam.__init__(self, Scene, Rect, Image, Host.x, Host.y + 20)
+        self.host = Host
+        if Update != None:
+            self.update = Update
+        if CheckCollisions != None:
+            self.check_collisions = CheckCollisions
+        if Action != None:
+            self.action = Action
+        self.orientation = 'R'        
+        self.name = Name
+        self.power = Power
+        self.pierce = Pierce
+        self.max_distance = MaxDistance
+        self.speed = Speed
+        self.set_orientation(self.host.orientation)
         self.spiritual = True
-        self.damage = 1
+        self.is_enemy = False
 
     def update(self):
-        self.check_collisions(self.speed)
+        self.check_collisions()
         if self.orientation == 'R':
             self.move(self.speed, 0)
         else:
             self.move(-self.speed, 0)
-        if abs(self.x - self.host.x) >= 500:
+
+        if abs(self.x - self.host.x) >= self.max_distance:
             self.destroy()
-
-    def check_collisions(self, speed):
-        checking_rect = self.get_rect().inflate(speed, 0)
+    
+    def check_collisions(self):
+        checking_rect = self.get_rect().inflate(self.speed, 0)
+        if self.orientation == 'L':
+            checking_rect.move_ip(self.speed, 0)
         for item in self.scene.Objects:
-            if not item.spiritual and checking_rect.colliderect(item.get_rect()) and item.is_enemy:
-                item.take_damage(self.damage, 'fire')
-                self.scene.del_object(self)
+            if checking_rect.colliderect(item.get_rect()) and item.is_enemy:
+                self.action(item)
+                if not self.pierce:
+                    self.destroy()
+
+    def action(self, agent):
+        agent.take_damage(self.power, 'fire')
 
 
-class Item():
-    def __init__(self, name, typ, slot, damage, armour, weight):
-        (self.name, self.typ, self.slot, self.damage, self.armour, self.weight) = (name, typ, slot, damage, armour, weight)
+class Spell(hp_adam):
+    def __init__(self, Image, Rect, Name, Power, 
+                Manacost = 10,
+                Speed = 5, 
+                MaxDistance = 500, 
+                Pierce = False, 
+                Update = None, 
+                CheckCollisions = None, 
+                Action = None):
+        self.image = Image
+        self.rect = Rect
+        self.name = Name
+        self.power = Power
+        self.pierce = Pierce
+        self.update = Update
+        self.check_collisions = CheckCollisions
+        self.action = Action
+        self.max_distance = MaxDistance
+        self.speed = Speed
+        self.manacost = Manacost
+        self.bonus_power = 0
+
+    def increase_power(self, x):
+        self.bonus_power = x
+
+    def cast(self, host):
+        # print(host.name, 'is casting')
+        if host.mana >= self.manacost:
+            tmp = SpellInstance(host, host.scene, self.image, self.rect, self.name, self.power + self.bonus_power, self.speed, self.max_distance, self.pierce, self.update, self.check_collisions, self.action)
+            host.scene.add_object(tmp)
+            host.change_mana(-self.manacost)
 
 
-sword = Item('sword', 'sword', 'right_hand', 5, 0, 5)
+FireBall = Spell(FIREBALL_IMAGE, FIREBALL_RECT, 'fireball', 1, 10, 5)
 
+
+def generate_random_common_item():
+    return random.choice(common_items)
+
+def generate_random_item():
+    x = random.random()
+    item = generate_random_common_item()
+    if x > 0.85:
+        item.set_status('uncommon')
+    if x > 0.98:
+        item.set_status('rare')
+    if x > 0.999:
+        item.set_status('epic')
+    if item.typ == 'wand':
+        item.spell = FireBall
+        item.spell.increase_power(item.get_power())
+        item.use = lambda host: item.spell.cast(host)
+    return item
 
 def GENERATE_RANDOM_ITEM():
-    return sword
+    return generate_random_item()
 
 
 
-class Spell:
-    def __init__(self, manacost, cast):
-        self.manacost = manacost
-        self.cast = cast
 
-    def use(self, host):
-        host.change_mana(-self.manacost)
-        self.cast(host)
 
-class Wand(Item):
-    def __init__(self, name, spell):
-        Item.__init__(self, name, 'wand', 'right_hand', 0, 0, 1)
-        self.spell = spell
-
-    def use(self, host):
-        if host.get_mana() >= self.spell.manacost:
-            self.spell.use(host)
-
-def Cast_fireball(host):
-    host.scene.add_object(FireBall(host.scene, host, host.x, host.y + 30))
-
-SummonFireball = Spell(50, Cast_fireball)
-fireball_wand = Wand('firewand', SummonFireball)
 
 class player_adam(true_adam):
     def __init__(self, scene):
         true_adam.__init__(self, scene, HERO_RECT, HERO_IMAGE, 0, 0)
         self.fsm = StateMachine(self, PlayerIdle)
         self.key_pressed = 'NONE'
-        self.is_living_adam = True
         self.hp = 10
-        self.mana = 200
-        self.max_mana = 200
+        self.mana = 10
+        self.max_mana = 10
         self.max_hp = 10
-        self.mana_regen = 50
+        self.mana_regen = 1
+        self.hp_regen = 1
         self.speed = 2
         self.exp = 0
         self.lvl = 1
         self.skill_points = 0
         self.equip = Doll(self)
         self.inv = Inventory(self)
-        self.equip.try_equip(fireball_wand)
+        self.inv.add_item(GENERATE_RANDOM_ITEM())
+        self.base_attack_distance = 20
         self.loot = [-1]
+        self.name = 'hero'
+        self.is_ally = True
 
     def add_loot(self, item):
         self.loot.append(item)
@@ -246,11 +327,12 @@ class player_adam(true_adam):
     def get_loot_name(self, ind):
         if self.loot[ind] == -1:
             return('None')
-        return self.loot[ind].name
+        return self.loot[ind].get_name()
 
     def update(self):
         true_adam.update(self)
         self.change_mana(self.mana_regen)
+        self.change_hp(self.hp_regen)
 
     def translate_event(self, event):
         key = event.key
@@ -281,20 +363,28 @@ class player_adam(true_adam):
         if self.mana > self.max_mana:
             self.mana = self.max_mana
 
-    def try_attack(self):
+    def get_attack_range(self):
         if self.equip.get_tag('right_hand') == -1:
-            checking_rect = self.rect.inflate(self.base_attack_range, 0)
+            return self.base_attack_distance
+        else:
+            return 20
+
+    def try_attack(self):
+        if self.equip.get_tag('right_hand') == -1 or self.equip.get_tag('right_hand').typ == 'sword' or self.equip.get_tag('right_hand').typ == 'spear':
+            checking_rect = self.rect.inflate(self.get_attack_range(), 0)
             if self.orientation == 'L':
-                checking_rect = checking_rect.move(-self.base_attack_range)
+                checking_rect = checking_rect.move(-self.get_attack_range())
             for item in self.scene.Objects:
-                if not item.spiritual and checking_rect.colliderect(item.get_rect()) and item.is_enemy:
+                if checking_rect.colliderect(item.get_rect()) and item.is_enemy:
                     self.attack(item)
+
         elif self.equip.get_tag('right_hand').typ == 'wand':
             self.equip.get_tag('right_hand').use(self)
 
+
     def give_exp(self, x):
         self.exp += x
-        while self.exp > self.exp_to_next_lvl():
+        while self.exp >= self.exp_to_next_lvl():
             self.exp -= self.exp_to_next_lvl()
             self.levelup()
 
@@ -349,6 +439,7 @@ class player_adam(true_adam):
         self.equip.clear_tag(tmp.slot)
         self.inv.add_item(tmp)
 
+
 class Zombie(enemy_adam):
     def __init__(self, scene, x, y):
         enemy_adam.__init__(self, scene, ZOMBIE_RECT, ZOMBIE_IMAGE, x, y)
@@ -358,7 +449,7 @@ class Zombie(enemy_adam):
         self.target = None
         self.orientation = 'L'
         self.attack_distance = 20
-        self.attack_damage = 1
+        self.base_attack_damage = 1
         self.hp = 2
         self.exp_reward = 5
 
@@ -366,7 +457,7 @@ class Zombie(enemy_adam):
         closest_target = None
         dist = 0
         for item in self.scene.Objects:
-            if not item.is_enemy and item.is_living_adam and item.hp > 0:
+            if not item.is_enemy and item.is_ally and item.hp > 0:
                 if closest_target == None:
                     closest_target = item
                     dist = self.dist(item)
@@ -412,6 +503,7 @@ class ZSpawner(enemy_adam):
     def spawn(self):
         tmp_child = self.child(self.scene, self.spawning_point, 0)
         self.scene.add_object(tmp_child)
+        pass
 
 
 def get_string_of_player_status():
@@ -423,26 +515,18 @@ def get_string_of_player_status():
     return s
 
 
-class SceneManager():
+
+class SceneManager(Stack):
     def __init__(self):
-        self.data = dict()
-        self.current_scene = None
-        self.current_tag = '_'
-        self.prev_tag = '_'
+        Stack.__init__(self)
+        self.scenes_dict = dict()
+        self.main_scene = None
 
-    def add_scene(self, scene, tag):
-        self.data[tag] = scene
+    def add_scene(self, scene, tag, is_main_scene = False):
+        self.scenes_dict[tag] = scene
+        if is_main_scene == True:
+            self.main_scene = scene
         scene.load()
-
-    def switch_scene(self, tag):
-        print('1:', self.current_tag, self.prev_tag)
-        self.prev_tag = self.current_tag
-        self.current_scene = self.data[tag]
-        self.current_tag = tag
-        print('2:', self.current_tag, self.prev_tag)
-
-    def switch_to_prev(self):
-        self.switch_scene(self.prev_tag)
 
     def run(self):
         while 1:
@@ -451,27 +535,29 @@ class SceneManager():
                 if event.type == QUIT:
                     return 
                 if event.type == KEYDOWN and event.key == K_TAB:
-                    if self.current_tag != 'game_menu':
-                        self.switch_scene('game_menu')
+                    if self.top() == self.main_scene:
+                        self.push(self.scenes_dict['game_menu'])
                     else:
-                        self.switch_to_prev()
+                        self.pop()
             self.update_current_scene(event_queue)
             pygame.time.delay(100)
 
     def update_current_scene(self, events):
-        if self.current_scene != None:
-            self.current_scene.update(events)
+        if self.get_len() != 0:
+            self.top().update(events)
+
 
 class Scene():
-    def __init__(self, screen, background_im):
+    def __init__(self, screen, background_im = background_im):
         self.Objects = set()
         self.DeadObjects = set()
         self.NewObjects = set()
         self.need_loading = False
         self.screen = screen
-        self.background_im = background_im
+        self.background = background_im
 
     def add_object(self, x):
+        # print(x)
         self.NewObjects.add(x)
     
     def del_object(self, x):
@@ -487,7 +573,7 @@ class Scene():
         self.NewObjects = set()
 
     def update(self, events):
-        self.screen.blit(self.background_im, (0, 0))
+        self.screen.blit(self.background, (0, 0))
         self.update_set_of_objects()
         for i in self.Objects:
             i.update()
@@ -531,14 +617,13 @@ class BattleScene(Scene):
                 self.player.translate_event(event)  
 
         textsurface = myfont.render(get_string_of_player_status(), False, (255, 255, 0))
-        screen.blit(background_im, (0, 0))
         screen.blit(ground_im, ground_rect)
         screen.blit(textsurface, (0, 0))
 
-        for item in self.Objects:
-            item.update()
-        for item in self.Objects:
-            item.draw()
+        # for item in self.Objects:
+        #     item.update()
+        # for item in self.Objects:
+        #     item.draw()
 
         pygame.display.update()
 
@@ -573,7 +658,18 @@ class MenuScene(Scene):
         
 
         self.need_loading = False 
-       
+
+
+def choose_color(text):
+    color = (255, 255, 255)
+    if text.startswith('rare '):
+        color = (255, 120, 0)
+    if text.startswith('uncommon '):
+        color = (153, 204, 255)
+    if text.startswith('epic '):
+        color = (255, 0, 0)
+    return color
+
 
 class Label():
     def __init__(self, text, x, y):
@@ -588,12 +684,13 @@ class Label():
 
 class UpdatingLabel(Label):
     def __init__(self, f, x, y):
-        self.surf = myfont.render(f(), True, (255, 255, 255))
+        text = f()
+        self.surf = myfont.render(text, True, choose_color(text))
         self.x, self.y = x, y
         self.text = f
 
     def update(self):
-        self.surf = myfont.render(self.text(), True, (255, 255, 255))
+        self.surf = myfont.render(self.text(), True, choose_color(self.text()))
 
 
 class Button:
@@ -639,7 +736,7 @@ class InventorySlotLabel:
         self.host = host
         self.ind_label = Label(str(ind), x, y)
         self.item_label = UpdatingLabel(lambda: player.get_inventory_slot(self.ind), x + 20, y)
-        self.equip_button = Button('equip', x + 150, y, lambda: host.equip_inventory_slot(self.ind))
+        self.equip_button = Button('equip', x + 250, y, lambda: host.equip_inventory_slot(self.ind))
 
     def update(self):
         self.ind_label.update()
@@ -659,7 +756,7 @@ class EquipSlotLabel:
         self.host = host
         self.tag_label = Label(tag, x, y)
         self.item_label = UpdatingLabel(lambda: player.equip.get_tag_text(self.tag), x + 100, y)
-        self.unequip_button = Button('unequip', x + 200, y, lambda: host.unequip(self.tag), lambda: host.equip.get_tag(tag) != -1)
+        self.unequip_button = Button('unequip', x + 300, y, lambda: host.unequip(self.tag), lambda: host.equip.get_tag(tag) != -1)
 
     def update(self):
         self.tag_label.update()
@@ -676,8 +773,8 @@ class LootLabel:
         self.ind = 0
         self.prev_button = Button('prev', x, y, lambda: self.prev(), lambda: self.ind > 0)
         self.text1 = UpdatingLabel(lambda: player.get_loot_name(self.ind), x + 50, y)
-        self.take_button = Button('take', x + 150, y, lambda: player.take_loot(self.ind), lambda: player.loot[self.ind] != -1)
-        self.next_button = Button('next', x + 200, y, lambda: self.next(), lambda: self.ind < len(player.loot) - 1)
+        self.take_button = Button('take', x + 185, y, lambda: player.take_loot(self.ind), lambda: player.loot[self.ind] != -1)
+        self.next_button = Button('next', x + 225, y, lambda: self.next(), lambda: self.ind < len(player.loot) - 1)
 
     def prev(self):
         self.ind -= 1
@@ -709,7 +806,7 @@ player = player_adam(zombie)
 zombie.add_player(player)
 
 Manager = SceneManager()
-Manager.add_scene(zombie, 'zomb')
+Manager.add_scene(zombie, 'zomb', True)
 Manager.add_scene(MenuScene(screen), 'game_menu')
-Manager.switch_scene('zomb')
+Manager.push(zombie)
 Manager.run()

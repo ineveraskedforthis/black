@@ -1,0 +1,3 @@
+sword sword right_hand 8
+spear spear right_hand 2
+wand wand right_hand 0

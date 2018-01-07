@@ -15,8 +15,11 @@ class Doll:
         return -1
 
     def free(self, slot):
+        if slot == 'left_hand' and not self.free('right_hand') and self.get_tag('right_hand').is_twohanded:
+            return False
         if self.items[slot] == -1:
             return True
+        return False
 
     def get_tag(self, tag):
         return self.items[tag]
@@ -28,7 +31,7 @@ class Doll:
         if self.items[tag] == -1:
             return('empty')
         else:
-            return(self.items[tag].name)
+            return(self.items[tag].get_name())
     
     def get_equip_damage(self):
         curr = 0
@@ -71,7 +74,7 @@ class Inventory():
     def get_ind_name(self, ind):
         if self.items[ind] == -1:
             return ''
-        return self.items[ind].name
+        return self.items[ind].get_name()
 
     def erase_ind(self, ind):
         self.items[ind] = -1
@@ -87,3 +90,26 @@ class Inventory():
             if self.items[i] == -1:
                 return False
         return True
+
+
+class Stack:
+    def __init__(self):
+        self.length = 0
+        self.data = []
+
+    def push(self, item):
+        if self.length == len(self.data):
+            self.data.append(item)
+        else:
+            self.data[self.length] = item
+        self.length += 1
+
+    def top(self):
+        return self.data[self.length - 1]
+
+    def pop(self):
+        self.length -= 1
+        return self.data[self.length]
+
+    def get_len(self):
+        return self.length

@@ -14,7 +14,7 @@ def load_image(name, colorkey=None):
     image = pygame.image.load(fullname)
     image = image.convert_alpha()
     if colorkey is not None:
-        if colorkey is -1:
+        if colorkey is None:
             colorkey = image.get_at((0,0))
         image.set_colorkey(colorkey, RLEACCEL)
     return image, image.get_rect()
@@ -23,10 +23,15 @@ pygame.init()
 pygame.font.init()
 screen = pygame.display.set_mode((500, 500))
 pygame.display.set_caption('Basic Pygame program')
-BASE_SLOTS = ['left_hand', 'right_hand', 'helmet', 'legs', 'body', 'head']
+BASE_SLOTS = ['left_hand', 'right_hand', 'legs', 'body', 'head']
+DISPLAYABLE_SLOTS = ['body', 'head', 'left_hand', 'right_hand']
+BASE_ANIMATIONS = ['idle', 'move']
 BASE_DROP_CHANCE = 0.5
 CAMERA = [0, 0]
 
+
+ZOMBIE_MOVE_0, tmp = load_image('zombie_move_0.png')
+ZOMBIE_MOVE_1, tmp = load_image('zombie_move_1.png')
 BASE_IMAGE, BASE_RECT = load_image('base_image.png')
 CRATE_IMAGE, CRATE_RECT = load_image('crate.png')
 FIREBALL_IMAGE, FIREBALL_RECT = load_image('fireball.png')
@@ -60,7 +65,12 @@ class image_adam():
         self.x = x
         self.y = y
         self.is_enemy = False
+        self.is_ally = False
         self.orientation = 'R'
+        self.animation = dict()
+        self.current_animation_tick = 0
+        self.animation['idle'] = [self.image]
+        self.current_animation = 'idle'
 
     def draw(self):
         tmpRect = self.get_rect().move(CAMERA[0], CAMERA[1])
@@ -79,6 +89,10 @@ class image_adam():
         if self.y < 0:
             self.y = 0
 
+    def move_to(self, x, y = 0):
+        self.move(-self.x + x, -self.y + y)
+        print(self.x)
+
     def dist(self, agent):
         return abs(self.x - agent.x)
 
@@ -91,27 +105,48 @@ class image_adam():
         self.orientation = orientation
         self.image = pygame.transform.flip(self.image, True, False)
 
-    def step_right(self):
+    def step_right(self):       
         self.set_orientation('R')
         self.move(self.speed, 0)
 
     def step_left(self):
         self.set_orientation('L')
-        self.move(-self.speed, 0)   
+        self.move(-self.speed, 0) 
+
+    def add_animation(self, tag, list_of_image):
+        self.animation[tag] = list_of_image
+
+    def change_animation(self, tag):
+        self.current_tick = 0
+        self.current_animation = tag
+
+    def next_image(self):
+        self.current_animation_tick += 1
+        if self.current_animation_tick >= len(self.animation[self.current_animation]):
+            self.current_animation_tick = 0
+        return self.animation[self.current_animation][self.current_animation_tick]
+
+    def update(self):
+        self.image = self.next_image()
+        if self.orientation == 'L':
+            self.image = pygame.transform.flip(self.image, True, False)
+
 
 
 class hp_adam(image_adam):
-    def __init__(self, scene, rect, image, x = 0, y = 0):
+    def __init__(self, scene, rect, image, x = 0, y = 0, max_hp = 1):
         image_adam.__init__(self, scene, rect, image, x, y) 
-        self.hp = 1 
-        self.max_hp = 1
+        self.hp = max_hp
+        self.max_hp = max_hp
         self.speed = 1
         self.base_attack_damage = 1
         self.is_enemy = False
         self.is_ally = False
+        self.base_defence = 0
 
     def take_damage(self, x, type = 'phys'):
-        self.change_hp(-x)
+        tmp = min(0, self.get_defence() - x)
+        self.change_hp(tmp)
 
     def change_hp(self, x):
         self.hp = min(self.hp + x, self.max_hp)
@@ -131,26 +166,18 @@ class hp_adam(image_adam):
     def attack(self, agent):
         agent.take_damage(self.get_attack_damage())
 
+    def get_defence(self):
+        return self.base_defence
+
 
 class true_adam(hp_adam, fsm_adam):
-    def __init__(self, scene, rect, image, x = 0, y = 0):
-        hp_adam.__init__(self, scene, rect, image, x, y)
+    def __init__(self, scene, rect, image, x = 0, y = 0, max_hp = 2):
+        hp_adam.__init__(self, scene, rect, image, x, y, max_hp)
         self.scene = scene
 
-
-class enemy_adam(true_adam):
-    def __init__(self, scene, rect, image, x, y):
-        true_adam.__init__(self, scene, rect, image, x, y)
-        self.drop_chance = BASE_DROP_CHANCE
-        self.is_enemy = True
-
-    def destroy(self):
-        true_adam.destroy(self)
-        player.give_exp(self.exp_reward)
-        x = random.random()
-        if x <= self.drop_chance:
-            self.scene.player.add_loot(GENERATE_RANDOM_ITEM())
-
+    def update(self):
+        hp_adam.update(self)
+        fsm_adam.update(self)
 
 class Item():
     def __init__(self, Name, Type, Slot, BasePower):
@@ -162,6 +189,8 @@ class Item():
             self.is_twohanded = True
         else:
             self.is_twohanded = False
+        if Slot in DISPLAYABLE_SLOTS:
+            self.image, self.rect = load_image(self.name + '.png')
 
     def set_status(self, tag):
         if tag == 'uncommon':
@@ -177,6 +206,9 @@ class Item():
 
     def get_name(self):
         return self.status + ' ' + self.name
+
+    def get_cost(self):
+        return 10
 
 list_of_items = open('items.txt').readlines()
 common_items = []
@@ -207,6 +239,7 @@ class SpellInstance(hp_adam):
         self.is_enemy = False
 
     def update(self):
+        hp_adam.update(self)
         self.check_collisions()
         if self.orientation == 'R':
             self.move(self.speed, 0)
@@ -272,11 +305,11 @@ def generate_random_common_item():
 def generate_random_item():
     x = random.random()
     item = generate_random_common_item()
-    if x > 0.85:
+    if x > 0.95:
         item.set_status('uncommon')
-    if x > 0.98:
+    if x > 0.99:
         item.set_status('rare')
-    if x > 0.999:
+    if x > 0.9999:
         item.set_status('epic')
     if item.typ == 'wand':
         item.spell = FireBall
@@ -286,9 +319,30 @@ def generate_random_item():
 
 def GENERATE_RANDOM_ITEM():
     return generate_random_item()
+    # return common_items[0]
 
 
+class WeaponInstance(image_adam):
+    def __init__(self, scene, rect, image, host):
+        image_adam.__init__(self, scene, rect, image)
+        self.count = 0
+        self.move(host.rect.center[0], host.y + 20)
 
+    def update(self):
+        image_adam.update(self)
+        if self.count == 2:
+            self.destroy()
+        self.count += 1
+
+    def set_orientation(self, x):
+        if self.orientation == x:
+            return
+        if self.orientation == 'R':
+            self.move(-self.rect.width, 0)
+            self.image = pygame.transform.flip(self.image, True, False)
+            self.orientation = 'L'
+        # else
+        # no need for this branch
 
 
 
@@ -303,7 +357,7 @@ class player_adam(true_adam):
         self.max_hp = 10
         self.mana_regen = 1
         self.hp_regen = 1
-        self.speed = 2
+        self.speed = 3
         self.exp = 0
         self.lvl = 1
         self.skill_points = 0
@@ -311,9 +365,37 @@ class player_adam(true_adam):
         self.inv = Inventory(self)
         self.inv.add_item(GENERATE_RANDOM_ITEM())
         self.base_attack_distance = 20
-        self.loot = [-1]
+        self.loot = [None]
         self.name = 'hero'
         self.is_ally = True
+        self.money = 0
+
+
+    def update_loot(self):
+        tmp = []
+        for i in self.loot:
+            if i != None:
+                tmp.append(i)
+        if len(tmp) == 0:
+            tmp = [None]
+        self.loot = tmp
+
+    def draw(self):
+        true_adam.draw(self)
+        for tag in ['body', 'head', 'left_hand']:
+            tmp = self.equip.get_tag(tag)
+            if tmp != None:
+                tmp = tmp.image
+                if self.orientation == 'L':
+                    tmp = pygame.transform.flip(tmp, True, False)
+                screen.blit(tmp, self.rect)
+
+
+    def drop(self, ind):
+        tmp = self.inv.get_ind(ind)
+        if tmp != None:
+            self.inv.erase_ind(ind)
+            self.add_loot(tmp)
 
     def add_loot(self, item):
         self.loot.append(item)
@@ -322,10 +404,10 @@ class player_adam(true_adam):
         if self.inv.is_full():
             return
         self.inv.add_item(self.loot[ind])
-        self.loot[ind] = -1
+        self.loot[ind] = None
 
     def get_loot_name(self, ind):
-        if self.loot[ind] == -1:
+        if self.loot[ind] == None:
             return('None')
         return self.loot[ind].get_name()
 
@@ -349,6 +431,10 @@ class player_adam(true_adam):
                 self.key_pressed = 'DOWN'
             if key == K_e:
                 self.try_attack()
+            if key == K_SPACE:
+                if self.x >= 490:
+                    print('trying to travel')
+                    self.scene.go_next(self)
 
     def spend_mana(self, x):
         if self.mana - x >= 0:
@@ -364,18 +450,28 @@ class player_adam(true_adam):
             self.mana = self.max_mana
 
     def get_attack_range(self):
-        if self.equip.get_tag('right_hand') == -1:
+        if self.equip.get_tag('right_hand') == None:
             return self.base_attack_distance
         else:
             return 20
 
     def try_attack(self):
-        if self.equip.get_tag('right_hand') == -1 or self.equip.get_tag('right_hand').typ == 'sword' or self.equip.get_tag('right_hand').typ == 'spear':
+        tmp = self.equip.get_tag('right_hand')
+        if tmp == None:
             checking_rect = self.rect.inflate(self.get_attack_range(), 0)
             if self.orientation == 'L':
-                checking_rect = checking_rect.move(-self.get_attack_range())
+                checking_rect = checking_rect.move(-self.get_attack_range(), 0)
             for item in self.scene.Objects:
                 if checking_rect.colliderect(item.get_rect()) and item.is_enemy:
+                    self.attack(item)
+
+        elif tmp.typ == 'sword' or tmp.typ == 'spear':
+            weap = WeaponInstance(self.scene, tmp.rect, tmp.image, self)
+            if self.orientation == 'L':
+                weap.set_orientation('L')            
+            self.scene.add_object(weap)
+            for item in self.scene.Objects:
+                if weap.rect.colliderect(item.get_rect()) and item.is_enemy:
                     self.attack(item)
 
         elif self.equip.get_tag('right_hand').typ == 'wand':
@@ -413,11 +509,11 @@ class player_adam(true_adam):
 
     def equip_inventory_slot(self, ind):
         tmp1 = self.inv.get_ind(ind)       
-        if tmp1 == -1:
+        if tmp1 == None:
             return
         tmp2 = self.equip.get_tag(tmp1.slot)
         slot = tmp1.slot
-        if tmp2 == -1:
+        if tmp2 == None:
             self.equip.set_tag(slot, tmp1)
             self.inv.erase_ind(ind)
             return
@@ -434,15 +530,41 @@ class player_adam(true_adam):
         if self.inv.is_full():
             return
         tmp = self.equip.get_tag(tag)
-        if tmp == -1:
+        if tmp == None:
             return
         self.equip.clear_tag(tmp.slot)
         self.inv.add_item(tmp)
 
+    def get_defence(self):
+        return self.base_defence + self.equip.get_defence()
 
-class Zombie(enemy_adam):
-    def __init__(self, scene, x, y):
-        enemy_adam.__init__(self, scene, ZOMBIE_RECT, ZOMBIE_IMAGE, x, y)
+    def sell(self, ind):
+        self.money += self.inv.get_ind(ind).get_cost()
+        self.inv.erase_ind(ind)
+
+    def can_trade(self):
+        return self.scene.can_trade
+
+
+
+
+class enemy_adam(true_adam):
+    def __init__(self, scene, rect, image, x, y, max_hp):
+        true_adam.__init__(self, scene, rect, image, x, y, max_hp)
+        self.drop_chance = BASE_DROP_CHANCE
+        self.is_enemy = True
+
+    def destroy(self):
+        true_adam.destroy(self)
+        player.give_exp(self.exp_reward)
+        x = random.random()
+        if x <= self.drop_chance:
+            self.scene.player.add_loot(GENERATE_RANDOM_ITEM())
+
+
+class MovingEnemy(enemy_adam):
+    def __init__(self, scene, x, y, max_hp, rect = ZOMBIE_RECT, img = ZOMBIE_IMAGE):
+        enemy_adam.__init__(self, scene, rect, img, x, y, max_hp)
         self.speed = 1
         self.fsm = StateMachine(self, EnemyIdle)
         self.is_enemy = True
@@ -450,8 +572,8 @@ class Zombie(enemy_adam):
         self.orientation = 'L'
         self.attack_distance = 20
         self.base_attack_damage = 1
-        self.hp = 2
         self.exp_reward = 5
+        self.add_animation('move', [ZOMBIE_MOVE_0, ZOMBIE_MOVE_1])
 
     def update_target(self):
         closest_target = None
@@ -490,18 +612,17 @@ class Zombie(enemy_adam):
 
 class ZSpawner(enemy_adam):
     def __init__(self, scene, ticks, child, x):
-        enemy_adam.__init__(self, scene, ZOMBIE_SPAWNER_RECT, ZOMBIE_SPAWNER_IMAGE, x, 0)
+        enemy_adam.__init__(self, scene, ZOMBIE_SPAWNER_RECT, ZOMBIE_SPAWNER_IMAGE, x, 0, 100)
         (self.ticks, self.child, self.spawning_point) = (ticks, child, x)
         self.current_tick = 0
         self.is_enemy = True
         self.is_living_adam = False
         self.spiritual = False
-        self.hp = 10
         self.fsm = StateMachine(self, SpawnerIdle)
         self.exp_reward = 100
 
     def spawn(self):
-        tmp_child = self.child(self.scene, self.spawning_point, 0)
+        tmp_child = self.child(self.scene, self.spawning_point, 0, 2)
         self.scene.add_object(tmp_child)
         pass
 
@@ -512,9 +633,8 @@ def get_string_of_player_status():
     s += ' mana: ' + str(player.mana) + '/' + str(player.max_mana)
     s += ' exp: ' + str(player.exp) + '/' + str(player.exp_to_next_lvl())
     s += ' lvl: ' + str(player.lvl)
+    s += ' money: ' + str(player.money)
     return s
-
-
 
 class SceneManager(Stack):
     def __init__(self):
@@ -523,6 +643,7 @@ class SceneManager(Stack):
         self.main_scene = None
 
     def add_scene(self, scene, tag, is_main_scene = False):
+        pygame.time.delay(10)
         self.scenes_dict[tag] = scene
         if is_main_scene == True:
             self.main_scene = scene
@@ -535,10 +656,12 @@ class SceneManager(Stack):
                 if event.type == QUIT:
                     return 
                 if event.type == KEYDOWN and event.key == K_TAB:
-                    if self.top() == self.main_scene:
+                    if self.top().is_battle_scene:
                         self.push(self.scenes_dict['game_menu'])
+                        pygame.time.delay(10)
                     else:
                         self.pop()
+                        pygame.time.delay(10)
             self.update_current_scene(event_queue)
             pygame.time.delay(100)
 
@@ -546,15 +669,30 @@ class SceneManager(Stack):
         if self.get_len() != 0:
             self.top().update(events)
 
+    def push_tag(self, tag):
+        self.push(self.scenes_dict[tag])
+        pygame.time.delay(10)
+
+    def pop_and_push_tag(self, tag):
+        if self.main_scene == self.pop():
+            self.main_scene = self.scenes_dict[tag]    
+        self.push(self.main_scene)
+
+    def set_main_scene(self, scene):
+        self.main_scene = scene
+
 
 class Scene():
-    def __init__(self, screen, background_im = background_im):
+    def __init__(self, screen = screen, background_im = background_im):
         self.Objects = set()
         self.DeadObjects = set()
         self.NewObjects = set()
         self.need_loading = False
         self.screen = screen
         self.background = background_im
+        self.scripts = []
+        self.is_battle_scene = False
+        self.next = None
 
     def add_object(self, x):
         # print(x)
@@ -588,6 +726,9 @@ class BattleScene(Scene):
         self.run = False
         self.pause = False
         self.need_loading = True
+        self.is_battle_scene = True
+        self.player = None
+        self.can_trade = False
 
     def load(self):
         x = open(self.data)
@@ -595,7 +736,7 @@ class BattleScene(Scene):
             s, p = i.split()
             p = int(p)
             if s == 'zspawner':
-                self.add_object(ZSpawner(self, 20, Zombie, p))
+                self.add_object(ZSpawner(self, 20, MovingEnemy, p))
         self.need_loading = False
 
     def start(self):
@@ -614,7 +755,8 @@ class BattleScene(Scene):
                 self.run = False
                 return
             elif event.type == KEYDOWN or event.type == KEYUP:
-                self.player.translate_event(event)  
+                if self.player != None:
+                    self.player.translate_event(event)
 
         textsurface = myfont.render(get_string_of_player_status(), False, (255, 255, 0))
         screen.blit(ground_im, ground_rect)
@@ -631,6 +773,15 @@ class BattleScene(Scene):
         self.add_object(x)
         self.player = x
         player.scene = self
+        player.move_to(0)
+
+    def go_next(self, player):
+        print('ok')
+        Manager.pop()
+        Manager.push(self.next)
+        Manager.set_main_scene(self.next)
+        self.next.add_player(self.player)
+        self.player = None
 
 class MenuScene(Scene):
     def __init__(self, screen, background = background_im):
@@ -640,8 +791,7 @@ class MenuScene(Scene):
     def load(self):
         self.add_object(UpdatingLabel(get_string_of_player_status, 10, 0))
         self.add_object(UpdatingLabel(lambda: 'Skill points: ' + str(player.skill_points), 10, 25))
-        self.add_object(Button('Increase maximum mana', 10, 50, player.spend_sp_on_mana, player.has_sp))
-        self.add_object(Button('Increase maximum hp', 10, 75, player.spend_sp_on_hp, player.has_sp))
+        self.add_object(Button('Spend skillpoins', 10, 50, lambda: Manager.push_tag('skill_menu')))
         self.add_object(InventorySlotLabel(player, 0, 10, 100))
         self.add_object(InventorySlotLabel(player, 1, 10, 125))
         self.add_object(InventorySlotLabel(player, 2, 10, 150))
@@ -653,11 +803,40 @@ class MenuScene(Scene):
         self.add_object(EquipSlotLabel(player, 'right_hand', 10, 300))
         self.add_object(EquipSlotLabel(player, 'body', 10, 325))
         self.add_object(EquipSlotLabel(player, 'head', 10, 350))
-        self.add_object(Label('Loot:', 220, 25))
-        self.add_object(LootLabel(220, 50))
-        
+        self.add_object(Label('Loot:', 150, 25))
+        self.add_object(LootLabel(150, 50))        
 
         self.need_loading = False 
+
+class StartMenu(Scene):
+    def __init__(self):
+        Scene.__init__(self)
+        self.need_loading = True
+
+    def load(self):
+        self.add_object(Button('Start Game', 50, 50, lambda: Manager.push_tag('zomb')))
+
+
+class SkillsScene(Scene):
+    def __init__(self):
+        Scene.__init__(self)
+        self.need_loading = True
+
+    def load(self):
+        self.add_object(UpdatingLabel(get_string_of_player_status, 10, 0))
+        self.add_object(UpdatingLabel(lambda: 'Skill points: ' + str(player.skill_points), 10, 25))
+        self.add_object(Button('Increase maximum mana', 10, 75, player.spend_sp_on_mana, player.has_sp))
+        self.add_object(Button('Increase maximum hp', 10, 100, player.spend_sp_on_hp, player.has_sp))
+
+        self.need_loading = False
+
+class TravelScene(Scene):
+    def __init__(self):
+        Scene.__init__(self)
+        self.need_loading = True
+
+    def load(self):
+        pass
 
 
 def choose_color(text):
@@ -736,17 +915,23 @@ class InventorySlotLabel:
         self.host = host
         self.ind_label = Label(str(ind), x, y)
         self.item_label = UpdatingLabel(lambda: player.get_inventory_slot(self.ind), x + 20, y)
-        self.equip_button = Button('equip', x + 250, y, lambda: host.equip_inventory_slot(self.ind))
+        self.equip_button = Button('equip', x + 200, y, lambda: host.equip_inventory_slot(self.ind))
+        self.drop_button = Button('drop', x + 260, y, lambda: host.drop(ind))
+        self.sell_button = Button('sell', x + 320, y, lambda: host.sell(ind), lambda: host.can_trade())
 
     def update(self):
         self.ind_label.update()
         self.item_label.update()
         self.equip_button.update()
+        self.drop_button.update()
+        self.sell_button.update()
 
     def draw(self):
         self.ind_label.draw()
         self.item_label.draw()
         self.equip_button.draw()
+        self.drop_button.draw()
+        self.sell_button.draw()
 
 class EquipSlotLabel:
     def __init__(self, host, tag, x, y):
@@ -756,7 +941,7 @@ class EquipSlotLabel:
         self.host = host
         self.tag_label = Label(tag, x, y)
         self.item_label = UpdatingLabel(lambda: player.equip.get_tag_text(self.tag), x + 100, y)
-        self.unequip_button = Button('unequip', x + 300, y, lambda: host.unequip(self.tag), lambda: host.equip.get_tag(tag) != -1)
+        self.unequip_button = Button('unequip', x + 300, y, lambda: host.unequip(self.tag), lambda: host.equip.get_tag(tag) != None)
 
     def update(self):
         self.tag_label.update()
@@ -773,8 +958,13 @@ class LootLabel:
         self.ind = 0
         self.prev_button = Button('prev', x, y, lambda: self.prev(), lambda: self.ind > 0)
         self.text1 = UpdatingLabel(lambda: player.get_loot_name(self.ind), x + 50, y)
-        self.take_button = Button('take', x + 185, y, lambda: player.take_loot(self.ind), lambda: player.loot[self.ind] != -1)
+        self.take_button = Button('take', x + 185, y, lambda: player.take_loot(self.ind), lambda: player.loot[self.ind] != None)
         self.next_button = Button('next', x + 225, y, lambda: self.next(), lambda: self.ind < len(player.loot) - 1)
+        self.update_button =  Button('update', x + 265, y, lambda: self.update_loot())
+
+    def update_loot(self):
+        player.update_loot()
+        self.ind = 0
 
     def prev(self):
         self.ind -= 1
@@ -787,26 +977,34 @@ class LootLabel:
         self.text1.update()
         self.take_button.update()
         self.next_button.update()
+        self.update_button.update()
 
     def draw(self):
         self.prev_button.draw()
         self.text1.draw()
         self.take_button.draw()
         self.next_button.draw()
+        self.update_button.draw()
 
 
-class CrateLabel:
-    def __init__(self, x, y):
-        self.x, self.y = x, y
-        self.b_prev = Button()
+# class CrateLabel:
+#     def __init__(self, x, y):
+#         self.x, self.y = x, y
+#         self.b_prev = Button()
 
 
 zombie = BattleScene(screen, 'zombie_spawner_scene.txt')
+travel = BattleScene(screen)
+travel.can_trade = True
+zombie.next = travel
 player = player_adam(zombie)
 zombie.add_player(player)
 
 Manager = SceneManager()
 Manager.add_scene(zombie, 'zomb', True)
 Manager.add_scene(MenuScene(screen), 'game_menu')
-Manager.push(zombie)
+Manager.add_scene(SkillsScene(), 'skill_menu')
+Manager.add_scene(StartMenu(), 'main_menu')
+Manager.add_scene(travel, 'travel')
+Manager.push_tag('main_menu')
 Manager.run()

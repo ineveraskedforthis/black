@@ -6,18 +6,18 @@ class Doll:
         self.items = dict()
         self.owner = owner
         for i in BASE_SLOTS:
-            self.items[i] = -1
+            self.items[i] = None
 
     def try_equip(self, x):
         if self.free(x.slot):
             self.items[x.slot] = x
             return 1
-        return -1
+        return None
 
     def free(self, slot):
         if slot == 'left_hand' and not self.free('right_hand') and self.get_tag('right_hand').is_twohanded:
             return False
-        if self.items[slot] == -1:
+        if self.items[slot] == None:
             return True
         return False
 
@@ -28,7 +28,7 @@ class Doll:
         self.items[tag] = item
 
     def get_tag_text(self, tag):
-        if self.items[tag] == -1:
+        if self.items[tag] == None:
             return('empty')
         else:
             return(self.items[tag].get_name())
@@ -36,58 +36,67 @@ class Doll:
     def get_equip_damage(self):
         curr = 0
         for tag in BASE_SLOTS:
-            if self.items[tag] != -1:
+            if self.items[tag] != None:
                 curr += self.items[tag].dmg
         return curr
     
     def get_equip_armour(self):
         curr = 0
         for tag in BASE_SLOTS:
-            if self.items[tag] != -1:
+            if self.items[tag] != None:
                 curr += self.items[tag].armour
         return curr
 
     def clear_tag(self, tag):
-        self.items[tag] = -1
+        self.items[tag] = None
+
+    def get_defence(self):
+        ans = 0
+        for i in BASE_SLOTS:
+            tmp = self.get_tag(i)
+            if tmp != None and tmp.typ == 'armor':
+                ans += tmp.power
+        return ans
+
 
 
 class Inventory():
     def __init__(self, host):
         self.max_items = 6
-        self.items = [-1] * self.max_items
+        self.items = [None] * self.max_items
         self.host = host
 
     def add_item(self, x):
         for i in range(self.max_items):
-            if self.items[i] == -1:
+            if self.items[i] == None:
                 self.items[i] = x
                 return
 
     def get_ind(self, ind):
         if ind < self.max_items:
             return self.items[ind]
-        return -1
+        return None
 
     def set_ind(self, ind, item):
         self.items[ind] = item
 
     def get_ind_name(self, ind):
-        if self.items[ind] == -1:
+        if self.items[ind] == None:
             return ''
         return self.items[ind].get_name()
 
     def erase_ind(self, ind):
-        self.items[ind] = -1
+        self.items[ind] = None
 
     def is_empty(self):
         for i in range(self.max_items):
-            if self.items[i] != -1:
+            if self.items[i] != None:
                 return False
         return True
 
     def is_full(self):
         for i in range(self.max_items):
-            if self.items[i] == -1:
+            if self.items[i] == None:
                 return False
         return True
 

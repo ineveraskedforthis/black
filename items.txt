@@ -1,3 +1,6 @@
 sword sword right_hand 8
 spear spear right_hand 2
 wand wand right_hand 0
+shield shield left_hand 1
+plate armor body 3
+helmet armor head 1

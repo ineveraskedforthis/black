@@ -1,0 +1,3 @@
+2
+fireball projectile 1 10
+summon_zombie summon zombie 10

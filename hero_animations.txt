@@ -1,0 +1,2 @@
+idle 1
+move 1

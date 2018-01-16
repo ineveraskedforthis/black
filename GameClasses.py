@@ -21,43 +21,27 @@ class Doll:
             return True
         return False
 
-    def get_tag(self, tag):
+    def get_slot(self, tag):
         return self.items[tag]
 
-    def set_tag(self, tag, item):
+    def set_slot(self, tag, item):
         self.items[tag] = item
 
-    def get_tag_text(self, tag):
+    def get_slot_text(self, tag):
         if self.items[tag] == None:
             return('empty')
         else:
             return(self.items[tag].get_name())
-    
-    def get_equip_damage(self):
-        curr = 0
-        for tag in BASE_SLOTS:
-            if self.items[tag] != None:
-                curr += self.items[tag].dmg
-        return curr
-    
-    def get_equip_armour(self):
-        curr = 0
-        for tag in BASE_SLOTS:
-            if self.items[tag] != None:
-                curr += self.items[tag].armour
-        return curr
 
-    def clear_tag(self, tag):
-        self.items[tag] = None
-
-    def get_defence(self):
-        ans = 0
+    def get(self, tag):
+        curr = 0
         for i in BASE_SLOTS:
-            tmp = self.get_tag(i)
-            if tmp != None and tmp.typ == 'armor':
-                ans += tmp.power
-        return ans
+            if self.items[i] != None:
+                curr += self.items[i].get(tag)
+        return curr
 
+    def clear_slot(self, tag):
+        self.items[tag] = None
 
 
 class Inventory():

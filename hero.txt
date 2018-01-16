@@ -1,0 +1,17 @@
+max_hp 10
+hp 10
+hp_regen 1
+max_mana 10
+mana 10
+mana_regen 0
+speed 2
+attack_range 10
+fire_damage  0
+cold_damage 0
+shock_damage  0
+phys_damage 3
+fire_def 0
+cold_def 0 
+shock_def 0 
+phys_def 0
+initial_state player

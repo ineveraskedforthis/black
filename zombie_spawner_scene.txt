@@ -1,1 +1,1 @@
-zspawner 400
+zombie_spawner 400 enemy

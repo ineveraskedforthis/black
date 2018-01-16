@@ -16,7 +16,7 @@ class PlayerMoveLeft(State):
         agent.set_orientation('L')
 
     def Execute(agent):
-        agent.move(-agent.speed, 0)
+        agent.step_left()
         if agent.key_pressed == 'NONE':
             agent.change_state(PlayerIdle)
         if agent.key_pressed == 'RIGHT':
@@ -29,7 +29,7 @@ class PlayerMoveRight(State):
         agent.set_orientation('R')
 
     def Execute(agent):
-        agent.move(agent.speed, 0)
+        agent.step_right()
         if agent.key_pressed == 'NONE':
             agent.change_state(PlayerIdle)
         if agent.key_pressed == 'LEFT':

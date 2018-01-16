@@ -1,5 +1,8 @@
 from StateTemplates import *
 
+class IdleState(State):
+    pass
+
 class EnemyIdle(State):
     def Enter(agent):
         agent.change_animation('idle')
@@ -18,14 +21,14 @@ class EnemyGoToTarget(State):
         if agent.target == None:
             agent.change_state(EnemyIdle)
             return
-        if agent.target.hp == 0:
+        if agent.target.get('hp') == 0:
             agent.cancel_target()
             agent.change_state(EnemyIdle)
             
-        if agent.distance_to_target() > agent.get_attack_distance():
+        if agent.distance_to_target() > agent.get('attack_range'):
             agent.move_to_target()
-        elif agent.target.hp > 0:
-            agent.attack_target()
+        elif agent.get('hp') > 0:
+            agent.attack(agent.target)
             agent.change_state(EnemyAttack)
 
 class EnemyAttack(State):
@@ -36,17 +39,17 @@ class EnemyAttack(State):
         if agent.target == None:
             agent.change_state(EnemyIdle)
             return 
-        if agent.target.hp == 0:
+        if agent.target.get('hp') == 0:
             agent.cancel_target()
             agent.change_state(EnemyIdle)
-        if agent.distance_to_target() > agent.get_attack_distance():
+        if agent.distance_to_target() > agent.get('attack_range'):
             agent.change_state(EnemyGoToTarget)
-        elif agent.target.hp > 0:
-            agent.attack_target()
+        elif agent.target.get('hp') > 0:
+            agent.attack(agent.target)
 
 
 class SpawnerIdle(State):
     def Execute(agent):
-        agent.current_tick = (agent.current_tick + 1) % agent.ticks
-        if agent.current_tick == 0:
-            agent.spawn()
+        if agent.get('mana') >= agent.spell.manacost:
+            agent.spell.cast(agent)
+        return

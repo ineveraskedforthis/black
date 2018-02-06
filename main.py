@@ -2,6 +2,7 @@ import os
 import sys
 import pygame
 import random
+import copy
 from pygame.locals import *
 from StateTemplates import *
 from PlayerStates import *
@@ -26,7 +27,7 @@ pygame.init()
 pygame.font.init()
 screen = pygame.display.set_mode((500, 500))
 pygame.display.set_caption('game')
-myfont = pygame.font.SysFont('timesnewroman', 20)
+myfont = pygame.font.SysFont('timesnewroman', 18)
 
 
 
@@ -90,8 +91,8 @@ class ViewAdam():
         if self.y < 0:
             self.y = 0
 
-    def move_to(self, x):
-        self.move(-self.x + x, 0)        
+    def move_to(self, x, y = 0):
+        self.move(-self.x + x, y - self.y)        
 
     def dist(self, item):
         tmp = self.get_rect()
@@ -158,6 +159,7 @@ class CharacterAdam():
         self.y = y
         self.side = side
         self.target = None
+        self.equip = Doll(self)
 
     def translate(self, string):
         a = string.split()
@@ -176,9 +178,12 @@ class CharacterAdam():
     def take_damage(self, attack):
         tmp = 0
         for i in DAMAGE_TYPES:
-            x = min(0, self.get(i + '_def') - attack.get(i + '_damage'))
+            x = min(0, self.get_with_equip(i + '_def') - attack.get(i + '_damage'))
             tmp += x
         self.change_hp(tmp)
+
+    def get_with_equip(self, tag):
+        return self.get(tag) + self.equip.get(tag)
 
     def change_hp(self, x):
         self.change_tag('hp', x)
@@ -204,7 +209,7 @@ class CharacterAdam():
             self.attack(self.target)
 
     def get(self, tag):
-        return self.attributes[tag]
+        return self.attributes[tag] + self.equip.get(tag)
 
     def set(self, tag, x):
         self.attributes[tag] = x
@@ -249,9 +254,6 @@ class CharacterAdam():
             else:
                 self.step_left()
 
-    def dist(self, item):
-        return self.root.view.dist(item)
-
     def distance_to_target(self):
         if self.target == None:
             return 9999
@@ -268,7 +270,7 @@ class AnimatedCharacter(ViewAdam, CharacterAdam):
         CharacterAdam.__init__(self, tag, x, side = side)
 
         self.scene = scene
-        self.equip = Doll(self)
+        
 
 
     def update(self):
@@ -300,8 +302,7 @@ class AnimatedCharacter(ViewAdam, CharacterAdam):
     def change_state(self, new_state):
         self.fsm.change_state(new_state)
 
-    def get_with_equip(self, tag):
-        return self.get(tag) + self.equip.get(tag)
+
 
 
 class Attack:
@@ -355,23 +356,26 @@ class PlayerAdam(AnimatedCharacter):
             if self.orientation == 'L':
                 checking_rect = checking_rect.move(-attack_range, 0)
             for item in self.scene.Objects:
-                if checking_rect.colliderect(item.get_rect()) and item.side != self.side:
-                    self.attack(item)
+                if checking_rect.colliderect(item.get_rect()):
+                    if item.side != self.side and item.side != 'projectile':
+                        self.attack(item)
 
-        elif tmp.typ == 'sword' or tmp.typ == 'spear':
-            weap = WeaponInstance(self.scene, tmp.rect, tmp.image, self)
+        elif tmp.typ == 'weapon':
+            weap = WeaponInstance(self.scene, tmp.name, self)
             if self.orientation == 'L':
                 weap.set_orientation('L')           
             self.scene.add_object(weap)
             for item in self.scene.Objects:
-                if weap.rect.colliderect(item.get_rect()) and item.side != self.side:
-                    self.attack(item)
+                if weap.rect.colliderect(item.get_rect()):
+                    if item.side != self.side and item.side != 'projectile':
+                        self.attack(item)
 
-        elif self.equip.get_tag('right_hand').typ == 'wand':
-            self.equip.get_tag('right_hand').use(self)
+        # elif tmp == 'wand':
+        #     self.equip.get_tag('right_hand').use(self)
 
     def add_loot(self, item):
-        self.loot.append(item)
+        if item != None:
+            self.loot.append(item)
 
     def take_loot(self, ind):
         if self.inv.is_full():
@@ -393,6 +397,9 @@ class PlayerAdam(AnimatedCharacter):
             return('None')
         return self.loot[ind].get_name()
 
+    def get_loot(self, ind):
+        return self.loot[ind]
+
     def drop(self, ind):
         tmp = self.inv.get_ind(ind)
         if tmp != None:
@@ -403,29 +410,33 @@ class PlayerAdam(AnimatedCharacter):
         tmp1 = self.inv.get_ind(ind)       
         if tmp1 == None:
             return
-        tmp2 = self.equip.get_tag(tmp1.slot)
+        tmp2 = self.equip.get_slot(tmp1.slot)
         slot = tmp1.slot
         if tmp2 == None:
-            self.equip.set_tag(slot, tmp1)
+            self.equip.set_slot(slot, tmp1)
             self.inv.erase_ind(ind)
             return
         self.inv.set_ind(ind, tmp2)
-        self.equip.set_tag(slot, tmp1)
+        self.equip.set_slot(slot, tmp1)
+        self.update_stats()
+
+    def get_inventory_slot_name(self, ind):
+        return self.inv.get_ind_name(ind)
 
     def get_inventory_slot(self, ind):
-        return self.inv.get_ind_name(ind)
+        return self.inv.get_ind(ind)
 
     def unequip(self, tag):
         if self.inv.is_full():
             return
-        tmp = self.equip.get_tag(tag)
+        tmp = self.equip.get_slot(tag)
         if tmp == None:
             return
-        self.equip.clear_tag(tmp.slot)
+        self.equip.clear_slot(tmp.slot)
         self.inv.add_item(tmp)
 
     def sell(self, ind):
-        self.money += self.inv.get_ind(ind).get_cost()
+        self.attributes['money'] += self.inv.get_ind(ind).get_cost()
         self.inv.erase_ind(ind)
 
 
@@ -439,12 +450,6 @@ class PlayerAdam(AnimatedCharacter):
 
     def exp_to_next_lvl(self):
         return self.get('lvl') * 100
-
-    def get(self, tag):
-        return self.attributes[tag]
-
-    def set(self, tag, x):
-        self.attributes[tag] = x
 
     def levelup(self):
         self.attributes['lvl'] += 1
@@ -469,27 +474,37 @@ class PlayerAdam(AnimatedCharacter):
     def can_trade(self):
         return self.scene.can_trade
 
+
+class ItemConstructor():
+    def __init__(self, name, slot, typ):
+        self.name = name
+        self.slot = slot
+        self.typ = typ
+        self.assigned_attributes = []
+
+    def set(self, x, y):
+        self.assigned_attributes.append([x, y])
+
+    def get_item(self):
+        tmp = Item(self.name, self.slot, self.typ)
+        for i in self.assigned_attributes:
+            tmp.set(i[0], i[1])
+        return tmp
+
+
 class Item():
-    def __init__(self, file):
+    def __init__(self, name, slot, typ):
         self.attributes = dict()
-        for s in file.readlines():
-            self.translate(s)
+        self.affected_tags = set()
         self.pre = None
         self.suf = None
+        self.name = name
+        self.slot = slot
+        self.typ = typ
+        if self.slot in DISPLAYABLE_SLOTS:
+            self.image, self.rect = load_image(self.name + '.png')
 
-    def translate(self, string):
-        a = string.split()
-        self.attributes[a[0]] = int(a[1])
-
-    def get_full(self, tag, sep = None):
-        if sep != None:
-            tmp = 0
-            if self.suf != None:
-                tmp += self.aff.get(tag)
-            tmp += sep + self.get(tag) + sep
-            if self.pre != None:
-                tmp += self.pre.get(tag)
-            return tmp
+    def get_full(self, tag):
         tmp = 0
         if self.suf != None:
             tmp += self.aff.get(tag)
@@ -497,8 +512,28 @@ class Item():
         if self.pre != None:
             tmp += self.pre.get(tag)
 
+    def get_name(self):
+        tmp = ''
+        if self.pre != None:
+            tmp += self.pre.name + ' '
+        tmp += self.name
+        if self.suf != None:
+            tmp += ' ' + self.suf.name
+        return tmp
+
     def get(self, tag):
-        return self.attributes[tag]
+        if tag in self.affected_tags:
+            tmp = self.attributes[tag]
+        else:
+            tmp = 0
+        if self.suf != None:
+            tmp += self.suf.get(tag) 
+        if self.pre != None:
+            tmp += self.pre.get(tag)
+        return tmp
+
+    def set(self, tag, x):
+        self.attributes[tag] = x
 
     def add_suf(self, suf):
         self.suf = suf
@@ -506,25 +541,135 @@ class Item():
     def add_pre(self, pre):
         self.pre = pre
 
-class ItemMod():
-    def __init__(self, file):
-        self.attributes = dict()
-        for s in file.readlines():
-            self.translate(s)
+    def get_cost(self):
+        return 10
 
-    def translate(self, string):
-        a = string.split()
-        self.attributes[a[0]] = int(a[1])
+    def get_rarity(self):
+        if self.pre == None and self.suf == None:
+            return 'common'
+        if self.pre == None and self.suf != None:
+            return 'uncommon'
+        if self.pre != None and self.suf == None:
+            return 'uncommon'
+        if self.pre != None and self.suf != None:
+            return 'rare'
+
+    def add_random_suf(self):
+        tmp = []
+        for i in ListOfSuffixes:
+            if i.typ == self.typ:
+                tmp.append(i)
+        self.add_suf(random.choice(tmp))
+
+    def add_random_pre(self):
+        tmp = []
+        for i in ListOfPrefixes:
+            if i.typ == self.typ:
+                tmp.append(i)
+        self.add_pre(random.choice(tmp))
+
+
+class ItemMod():
+    def __init__(self, aff, name, typ):
+        self.attributes = dict()
+        self.affected_tags = set()
+        self.aff = aff
+        self.typ = typ
+        self.name = name
+
+    def set(self, tag, x):
+        self.attributes[tag] = x
+        self.affected_tags.add(tag)
+
+    def get(self, tag):
+        if tag in self.affected_tags:
+            return self.attributes[tag]
+        else:
+            return 0
+
+
+Suffixes = dict()
+Prefixes = dict()
+ListOfSuffixes = []
+ListOfPrefixes = []
+Items = []
+
+#init of affixes
+file = open('itemmods.txt')
+tmp = 0
+curr = None
+for string in file.readlines():
+    string = string.rstrip()
+    if string.startswith('{'):
+        tmp += 1
+    elif string.startswith('}'):
+        tmp -= 1
+        if curr.aff == 'pre':
+            ListOfPrefixes.append(curr)
+        else:
+            ListOfSuffixes.append(curr)
+    elif tmp == 1:
+        (s1, s2) = tuple(string.split())
+        curr.set(s1, int(s2))
+    else:
+        (s1, s2, s3) = tuple(string.split('-'))
+        curr = ItemMod(s1, s2, s3)
+#init of items
+file = open('items.txt')
+tmp = 0
+curr = None
+
+for string in file.readlines():
+    string = string.rstrip()
+    if string.startswith('{'):
+        tmp += 1
+    elif string.startswith('}'):
+        tmp -= 1
+        Items.append(curr)
+    elif tmp == 1:
+        (s1, s2) = tuple(string.split())
+        curr.set(s1, int(s2))
+    else:
+        (s1, s2, s3) = tuple(string.split('|'))
+        curr = ItemConstructor(s1, s3, s2)
+
+
+
+def generate_random_common_item():
+    return random.choice(Items).get_item()
+
+def generate_random_loot():
+    tmp = generate_random_common_item()
+    x = random.random()
+    if x >= 0.85:
+        tmp.add_random_suf()
+    x = random.random()
+    if x >= 0.85:
+        tmp.add_random_pre()
+    return tmp
+
+
 
 class WeaponInstance(ViewAdam):
     def __init__(self, scene, tag, host):
-        ViewAdam.__init__(self, scene, tag)
+        self.scene = scene
+        self.image, self.rect = load_image(tag + '.png')
+        self.x = 0
+        self.y = 0
+        self.rect.top = host.y - 20 + GROUND_LEVEL
+        self.rect.left = host.rect.center[0]
+        self.side = 'projectile'
+        self.orientation = 'R'
         self.count = 0
-        self.move(host.rect.center[0], host.y + 20)
-        self.set_orientation(host.root.view.orientation)
+        self.set_orientation(host.orientation)
+
+    def get_image(self):
+        return self.image
+
+    def get_rect(self):
+        return self.rect
 
     def update(self):
-        ViewAdam.update(self)
         if self.count == 1:
             self.destroy()
         self.count += 1
@@ -662,6 +807,7 @@ class Scene():
                 player.give_exp(x.get('exp_cost'))
         except:
             pass
+        player.add_loot(generate_random_loot())
         self.DeadObjects.add(x)
 
     def update_set_of_objects(self):
@@ -680,8 +826,11 @@ class Scene():
         #     for i in self.Objects:
         #         i.translate_event(event)
         for i in self.Objects:
-            i.update()
-            i.draw()
+            try:
+                i.update()
+                i.draw()
+            except:
+                pass
         pygame.display.update()
 
 class BattleScene(Scene):
@@ -757,6 +906,7 @@ class MenuScene(Scene):
         self.add_object(UpdatingLabel(lambda: 'Skill points: ' + str(player.get('skill_points')), 10, 25))
 
         self.add_object(Button('Spend skillpoins', 10, 50, lambda: Manager.push_tag('skill_menu')))
+        self.add_object(Button('Stats', 10, 450, lambda: Manager.push_tag('stats_menu')))
 
         self.add_object(InventorySlotLabel(player, 0, 10, 100))
         self.add_object(InventorySlotLabel(player, 1, 10, 125))
@@ -795,6 +945,29 @@ class SkillsScene(Scene):
 
         self.need_loading = False
 
+class StatsScene(Scene):
+    def __init__(self):
+        Scene.__init__(self)
+        self.need_loading = True
+
+    def load(self):
+        self.add_object(Label('Fire damage:', 5, 10))
+        self.add_object(Label('Cold damage:', 5, 30))
+        self.add_object(Label('Shock damage:', 5, 50))
+        self.add_object(Label('Phys damage:', 5, 70))
+        self.add_object(UpdatingLabel(lambda: str(player.get_with_equip('fire_damage')), 150, 10))
+        self.add_object(UpdatingLabel(lambda: str(player.get_with_equip('cold_damage')), 150, 30))
+        self.add_object(UpdatingLabel(lambda: str(player.get_with_equip('shock_damage')), 150, 50))
+        self.add_object(UpdatingLabel(lambda: str(player.get_with_equip('phys_damage')), 150, 70))
+        self.add_object(Label('Fire defence:', 5, 90))
+        self.add_object(Label('Cold defence:', 5, 110))
+        self.add_object(Label('Shock defence:', 5, 130))
+        self.add_object(Label('Phys defence:', 5, 150))
+        self.add_object(UpdatingLabel(lambda: str(player.get_with_equip('fire_def')), 150, 90))
+        self.add_object(UpdatingLabel(lambda: str(player.get_with_equip('cold_def')), 150, 110))
+        self.add_object(UpdatingLabel(lambda: str(player.get_with_equip('shock_def')), 150, 130))
+        self.add_object(UpdatingLabel(lambda: str(player.get_with_equip('phys_def')), 150, 150))
+
 class TravelScene(Scene):
     def __init__(self):
         Scene.__init__(self)
@@ -804,8 +977,8 @@ class TravelScene(Scene):
         pass
 
 class Label():
-    def __init__(self, text, x, y):
-        self.surf = myfont.render(text, True, (255, 255, 255))
+    def __init__(self, text, x, y, color = (255, 255, 255)):
+        self.surf = myfont.render(text, True, color)
         self.x, self.y = x, y
 
     def update(self):
@@ -815,14 +988,15 @@ class Label():
         screen.blit(self.surf, (self.x, self.y))
 
 class UpdatingLabel(Label):
-    def __init__(self, f, x, y):
+    def __init__(self, f, x, y, color = lambda: (255, 255, 255)):
         text = f()
-        self.surf = myfont.render(text, True, choose_color(text))
+        self.surf = myfont.render(text, True, color())
         self.x, self.y = x, y
         self.text = f
+        self.color = color
 
     def update(self):
-        self.surf = myfont.render(self.text(), True, choose_color(self.text()))
+        self.surf = myfont.render(self.text(), True, self.color())
 
 class Button:
     def __init__(self, text, x, y, command, activation_condition = lambda: True):
@@ -869,10 +1043,12 @@ class InventorySlotLabel:
         self.ind = ind
         self.host = host
         self.ind_label = Label(str(ind), x, y)
-        self.item_label = UpdatingLabel(lambda: player.get_inventory_slot(self.ind), x + 20, y)
-        self.equip_button = Button('equip', x + 200, y, lambda: host.equip_inventory_slot(self.ind))
-        self.drop_button = Button('drop', x + 260, y, lambda: host.drop(ind))
-        self.sell_button = Button('sell', x + 320, y, lambda: host.sell(ind), lambda: host.can_trade())
+        tmp = lambda: player.get_inventory_slot_name(self.ind)
+        tmp2 = lambda: choose_color(player.get_inventory_slot(self.ind))
+        self.item_label = UpdatingLabel(tmp, x + 20, y, color = tmp2)
+        self.equip_button = Button('equip', x + 250, y, lambda: host.equip_inventory_slot(self.ind))
+        self.drop_button = Button('drop', x + 300, y, lambda: host.drop(ind))
+        self.sell_button = Button('sell', x + 350, y, lambda: host.sell(ind), lambda: host.can_trade())
 
     def update(self):
         self.ind_label.update()
@@ -895,7 +1071,9 @@ class EquipSlotLabel:
         self.tag = tag
         self.host = host
         self.tag_label = Label(tag, x, y)
-        self.item_label = UpdatingLabel(lambda: player.equip.get_slot_text(self.tag), x + 100, y)
+        tmp1 = lambda: player.equip.get_slot_text(self.tag)
+        tmp2 = lambda: choose_color(player.equip.get_slot(self.tag))
+        self.item_label = UpdatingLabel(tmp1, x + 100, y, color = tmp2)
         self.unequip_button = Button('unequip', x + 300, y, lambda: host.unequip(self.tag), lambda: host.equip.get_slot(tag) != None)
 
     def update(self):
@@ -912,7 +1090,9 @@ class LootLabel:
     def __init__(self, x, y):
         self.ind = 0
         self.prev_button = Button('prev', x, y, lambda: self.prev(), lambda: self.ind > 0)
-        self.text1 = UpdatingLabel(lambda: player.get_loot_name(self.ind), x + 50, y)
+        tmp1 = lambda: player.get_loot_name(self.ind)
+        tmp2 = lambda: choose_color(player.get_loot(self.ind))
+        self.text1 = UpdatingLabel(tmp1, x + 50, y, color = tmp2)
         self.take_button = Button('take', x + 185, y, lambda: player.take_loot(self.ind), lambda: player.loot[self.ind] != None)
         self.next_button = Button('next', x + 225, y, lambda: self.next(), lambda: self.ind < len(player.loot) - 1)
         self.update_button =  Button('update', x + 265, y, lambda: self.update_loot())
@@ -941,13 +1121,15 @@ class LootLabel:
         self.next_button.draw()
         self.update_button.draw()
 
-def choose_color(text):
+def choose_color(item):
     color = (255, 255, 255)
-    if text.startswith('rare '):
+    if item == None:
+        return color
+    if item.get_rarity() == 'rare':
         color = (255, 120, 0)
-    if text.startswith('uncommon '):
+    if item.get_rarity() == 'uncommon':
         color = (153, 204, 255)
-    if text.startswith('epic '):
+    if item.get_rarity() == 'epic':
         color = (255, 0, 0)
     return color
 
@@ -979,6 +1161,7 @@ Manager.add_scene(zombie, 'zomb', True)
 Manager.add_scene(MenuScene(screen), 'game_menu')
 Manager.add_scene(SkillsScene(), 'skill_menu')
 Manager.add_scene(StartMenu(), 'main_menu')
+Manager.add_scene(StatsScene(), 'stats_menu')
 Manager.add_scene(travel, 'travel')
 Manager.push_tag('main_menu')
 Manager.run()

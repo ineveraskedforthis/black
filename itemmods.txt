@@ -1,1 +1,29 @@
-pre Hot
+pre-hot-weapon 
+{
+fire_damage 2
+}
+pre-cold-weapon
+{
+cold_damage 2
+}
+pre-sharp-weapon
+{
+phys_damage 2
+}
+suf-of blizzard-weapon
+{
+cold_damage 5
+}
+suf-of firestorm-weapon
+{
+fire_damage 5
+}
+suf-of health-armor
+{
+hp_regen 1
+max_hp 10
+}
+pre-strong-armor
+{
+phys_def 2
+}

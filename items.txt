@@ -1,6 +1,21 @@
-sword sword right_hand 8
-spear spear right_hand 2
-wand wand right_hand 0
-shield shield left_hand 1
-plate armor body 3
-helmet armor head 1
+sword|weapon|right_hand
+{
+phys_damage 8
+}
+spear|weapon|right_hand
+{
+phys_damage 2
+}
+shield|armor|left_hand
+{
+phys_def 1
+}
+plate|armor|body 
+{
+phys_def 3
+fire_def 1
+}
+helmet|armor|head
+{
+phys_def 1
+}

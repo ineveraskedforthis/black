@@ -4,8 +4,8 @@ hp_regen 1
 max_mana 10
 mana 10
 mana_regen 0
-speed 2
-attack_range 10
+speed 10
+attack_range 15
 fire_damage  0
 cold_damage 0
 shock_damage  0

@@ -5,7 +5,7 @@ hp_regen 0
 max_mana 0
 mana_regen 0
 mana 10
-attack_range 10
+attack_range 1
 fire_damage  0
 cold_damage  0
 shock_damage 0
